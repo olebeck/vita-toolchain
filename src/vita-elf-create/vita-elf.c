@@ -733,6 +733,18 @@ static int compar_export_symbols(const void * a, const void *b)
 	return 0;
 }
 
+static int vita_elf_has_global_func(vita_elf_t *ve, const char *name)
+{
+	int i;
+	for (i = 0; i < ve->num_symbols; i++) {
+		vita_elf_symbol_t *s = &ve->symtab[i];
+		if (s->stub == NULL && s->binding == STB_GLOBAL && s->type == STT_FUNC
+				&& strcmp(s->name, name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
 void vita_elf_generate_exports(vita_elf_t *ve, vita_export_t *exports)
 {
 	int i;
@@ -740,6 +752,16 @@ void vita_elf_generate_exports(vita_elf_t *ve, vita_export_t *exports)
 	vita_library_export *exportlib = NULL;
 	vita_export_symbol *exportSym;
 	size_t strLen;
+
+	// We need to allow the ability for SceLibc-expected exports to be used in place of the standard module_start/stop/exit functions
+	if (exports->start == NULL && exports->stop == NULL && exports->exit == NULL
+			&& vita_elf_has_global_func(ve, "__module_start")
+			&& vita_elf_has_global_func(ve, "__module_stop")
+			&& vita_elf_has_global_func(ve, "__module_exit")) {
+		exports->start = strdup("__module_start");
+		exports->stop = strdup("__module_stop");
+		exports->exit = strdup("__module_exit");
+	}
 
 	for (i = 0; i < ve->num_symbols; i++) {
 		cursym = &ve->symtab[i];
@@ -870,7 +892,7 @@ int vita_elf_host_to_segndx(const vita_elf_t *ve, const void *host_addr)
 	int i;
 
 	for (i = 0, seg = ve->segments; i < ve->num_segments; i++, seg++) {
-		if (host_addr >= seg->vaddr_top && host_addr < seg->vaddr_bottom)
+		if (host_addr >= seg->vaddr_top && host_addr <= seg->vaddr_bottom)
 			return i;
 	}
 
@@ -884,7 +906,7 @@ int32_t vita_elf_host_to_segoffset(const vita_elf_t *ve, const void *host_addr, 
 	if (host_addr == NULL)
 		return 0;
 
-	if (host_addr >= seg->vaddr_top && host_addr < seg->vaddr_bottom)
+	if (host_addr >= seg->vaddr_top && host_addr <= seg->vaddr_bottom)
 		return (uint32_t)(host_addr - seg->vaddr_top);
 
 	return -1;
